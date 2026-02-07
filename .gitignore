@@ -1,0 +1,5 @@
+users.csv
+finance.csv
+recyclebin.csv
+__pycache__/
+.streamlit/
