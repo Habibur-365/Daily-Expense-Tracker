@@ -21,19 +21,25 @@ def bd_money(x):
     return f"৳ {sign}{integer}.{dec}"
 
 # ===============================
-# CONFIG & MULTI-BUSINESS SETUP
+# CONFIG
 # ===============================
+DATA_FILE = "finance.csv"
+RECYCLE_FILE = "recyclebin.csv"
 USER_FILE = "users.csv"
-BIZ_LIST_FILE = "businesses.csv" # ব্যবসার তালিকা সেভ রাখার ফাইল
 NEW_PASSWORD = "Habibur@98"
 COLS = ["ID", "তারিখ", "বিবরণ", "ধরণ", "পরিমাণ/সংখ্যা", "দর", "মোট টাকা", "মাধ্যম", "মন্তব্য"]
 
-# ফাইল ইনিশিয়ালাইজেশন
+# ===============================
+# INIT FILES
+# ===============================
 if not os.path.exists(USER_FILE):
     pd.DataFrame([{"username":"admin", "password":NEW_PASSWORD}]).to_csv(USER_FILE, index=False)
 
-if not os.path.exists(BIZ_LIST_FILE):
-    pd.DataFrame(["Default_Business"], columns=["biz_name"]).to_csv(BIZ_LIST_FILE, index=False)
+if not os.path.exists(DATA_FILE):
+    pd.DataFrame(columns=COLS).to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
+
+if not os.path.exists(RECYCLE_FILE):
+    pd.DataFrame(columns=COLS).to_csv(RECYCLE_FILE, index=False, encoding='utf-8-sig')
 
 # ===============================
 # LOGIN
@@ -47,7 +53,7 @@ def login_page():
     p = st.text_input("Password", type="password")
     if st.button("Login"):
         users = pd.read_csv(USER_FILE, dtype=str)
-        if u.strip() == "admin" and p.strip() == NEW_PASSWORD:
+        if ((users["username"] == u.strip()) & (users["password"] == p.strip())).any():
             st.session_state.login = True
             st.rerun()
         else:
@@ -58,48 +64,18 @@ if not st.session_state.login:
     st.stop()
 
 # ===============================
-# BUSINESS SELECTION LOGIC
-# ===============================
-st.sidebar.title("🏢 ব্যবসা ম্যানেজমেন্ট")
-
-# ব্যবসার তালিকা লোড করা
-biz_df = pd.read_csv(BIZ_LIST_FILE)
-all_biz = biz_df["biz_name"].tolist()
-
-# সাইডবারে ব্যবসা নির্বাচন
-selected_biz = st.sidebar.selectbox("আপনার ব্যবসা বেছে নিন", all_biz)
-
-# নতুন ব্যবসা যোগ করার অপশন
-with st.sidebar.expander("➕ নতুন ব্যবসা যোগ করুন"):
-    new_biz_name = st.text_input("ব্যবসার নাম")
-    if st.button("নিশ্চিত করুন"):
-        if new_biz_name and new_biz_name not in all_biz:
-            new_biz_clean = new_biz_name.replace(" ", "_") # ফাইলের নামের জন্য স্পেস বাদ দেওয়া
-            new_row = pd.DataFrame([new_biz_clean], columns=["biz_name"])
-            pd.concat([biz_df, new_row], ignore_index=True).to_csv(BIZ_LIST_FILE, index=False)
-            st.success(f"{new_biz_name} তৈরি হয়েছে!")
-            st.rerun()
-
-# ডাইনামিক ফাইল পাথ সেট করা
-DATA_FILE = f"{selected_biz}_finance.csv"
-RECYCLE_FILE = f"{selected_biz}_recyclebin.csv"
-
-# নির্বাচিত ব্যবসার ফাইল না থাকলে তৈরি করা
-if not os.path.exists(DATA_FILE):
-    pd.DataFrame(columns=COLS).to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
-if not os.path.exists(RECYCLE_FILE):
-    pd.DataFrame(columns=COLS).to_csv(RECYCLE_FILE, index=False, encoding='utf-8-sig')
-
-# ===============================
 # LOAD & CLEAN DATA
 # ===============================
 df = pd.read_csv(DATA_FILE, encoding='utf-8-sig')
 rb_df = pd.read_csv(RECYCLE_FILE, encoding='utf-8-sig')
 
+# Data Type Enforcement (ভবিষ্যতের এরর এড়ানোর জন্য)
 def clean_df(target_df):
     for col in COLS:
         if col not in target_df.columns:
             target_df[col] = 0.0 if col in ["পরিমাণ/সংখ্যা", "দর", "মোট টাকা"] else ""
+    
+    # টাইপ কাস্টিং
     target_df["ID"] = pd.to_numeric(target_df["ID"], errors="coerce").fillna(0).astype(int)
     target_df["পরিমাণ/সংখ্যা"] = pd.to_numeric(target_df["পরিমাণ/সংখ্যা"], errors="coerce").fillna(0.0).astype(float)
     target_df["দর"] = pd.to_numeric(target_df["দর"], errors="coerce").fillna(0.0).astype(float)
@@ -112,13 +88,12 @@ rb_df = clean_df(rb_df)
 # ===============================
 # UI SETUP
 # ===============================
-st.set_page_config(f"{selected_biz} - হিসাব", layout="wide")
-st.title(f"📊 {selected_biz.replace('_', ' ')} - হিসাব")
+st.set_page_config("দৈনিক জমা খরচ", layout="wide")
+st.title("📊 দৈনিক জমা-খরচ হিসাব")
 
 # ===============================
 # SIDEBAR ENTRY / EDIT
 # ===============================
-st.sidebar.divider()
 st.sidebar.header("➕ নতুন এন্ট্রি / ✏️ এডিট")
 options = ["নতুন এন্ট্রি"] + (df["ID"].tolist() if not df.empty else [])
 selected = st.sidebar.selectbox("আইডি নির্বাচন করুন", options)
@@ -155,6 +130,7 @@ if save:
     total = float(f_qty * f_rate)
 
     if is_edit:
+        # FutureWarning fix: এডিট করার সময় টাইপ ঠিক রাখা
         update_data = [str(f_date), f_desc, f_type, float(f_qty), float(f_rate), total, final_method, f_note]
         df.loc[df["ID"] == selected, COLS[1:]] = update_data
     else:
@@ -169,7 +145,7 @@ if save:
 # ===============================
 # DISPLAY
 # ===============================
-search = st.text_input(f"🔍 {selected_biz.replace('_', ' ')} এর তথ্য সার্চ করুন")
+search = st.text_input("🔍 তারিখ বা বিবরণ লিখে সার্চ করুন")
 show = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)] if search else df
 
 income = show[show["ধরণ"] == "আয় (জমা)"]["মোট টাকা"].sum()
@@ -212,7 +188,7 @@ if not df.empty:
 # RECYCLE BIN (Restore & Permanent Delete)
 # ===============================
 st.divider()
-st.subheader(f"♻️ Recycle Bin ({selected_biz.replace('_', ' ')})")
+st.subheader("♻️ Recycle Bin")
 if rb_df.empty:
     st.info("Recycle Bin খালি")
 else:
